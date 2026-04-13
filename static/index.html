@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Metaphorical Recreation Center — Front Desk</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/styles.css" />
+
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <div class="app-title">Metaphorical Recreation Center</div>
+    <div class="app-sub">Front desk — manage members, bookings, guest passes</div>
+  </div>
+  <div class="clock" id="clock"></div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-button active" type="button" onclick="showTab('desk')">Front desk</button>
+  <button class="tab-button" type="button" onclick="showTab('manage')">Manage</button>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-label">Inside now</div><div class="stat-val green" id="s-inside">0</div></div>
+  <div class="stat"><div class="stat-label">Check-ins today</div><div class="stat-val blue" id="s-checkins">0</div></div>
+  <div class="stat"><div class="stat-label">Guest passes</div><div class="stat-val" id="s-guests">0</div></div>
+  <div class="stat"><div class="stat-label">Bookings today</div><div class="stat-val purple" id="s-bookings">0</div></div>
+</div>
+
+<section id="desk-panel">
+  <div class="layout">
+    <div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Member lookup</span></div>
+        <div class="search-row">
+          <input id="search-input" placeholder="Search by name or member ID..." onclick="openMemberSearch()" onblur="maybeCloseMemberSearch()" oninput="searchMembers()" />
+          <button class="btn" onclick="addGuestPass()">+ Guest pass</button>
+        </div>
+        <div id="search-results" class="hidden" onmousedown="setIgnoreSearchBlur(true)"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Activity log</span>
+          <span id="log-count">0 entries</span>
+        </div>
+        <div class="log-scroll" id="log-list"><div class="no-result">No activity yet — check someone in to get started.</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Quick actions</span></div>
+        <div class="quick-actions">
+          <button class="qa-btn" onclick="quickCheckin()"><strong>Walk-in check-in</strong>member at door</button>
+          <button class="qa-btn" onclick="addGuestPass()"><strong>Guest pass</strong>log a visitor</button>
+          <button class="qa-btn" onclick="addBooking('Pool lane')"><strong>Book pool lane</strong>reserve slot</button>
+          <button class="qa-btn" onclick="addBooking('Gym court')"><strong>Book gym court</strong>reserve slot</button>
+          <button class="qa-btn" onclick="addBooking('Meeting room')"><strong>Book meeting room</strong>reserve space</button>
+          <button class="qa-btn" onclick="addBooking('Racquetball')"><strong>Book racquetball</strong>reserve court</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Today's bookings</span></div>
+        <div class="booking-list" id="booking-list"><div class="no-result">No bookings yet</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="manage-panel" class="hidden">
+  <div class="layout">
+    <div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Create new member</span></div>
+        <div class="search-row">
+          <input id="new-member-name" placeholder="Name" />
+          <input id="new-member-type" placeholder="Type (e.g. Annual)" />
+          <input id="new-member-initials" placeholder="Initials" />
+          <button class="btn btn-green" onclick="createMember()">Create member</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Member management</span></div>
+        <div class="search-row">
+          <input id="manage-member-search" placeholder="Search members..." oninput="searchManageMembers()" />
+        </div>
+        <div id="manage-member-list"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Booking management</span></div>
+        <div class="search-row">
+          <select id="new-booking-facility">
+            <option value="Pool lane">Pool lane</option>
+            <option value="Gym court">Gym court</option>
+            <option value="Meeting room">Meeting room</option>
+            <option value="Racquetball">Racquetball</option>
+          </select>
+          <input id="new-booking-time" placeholder="Time slot" />
+          <input id="new-booking-member" placeholder="Member name" />
+          <button class="btn btn-green" onclick="createBooking()">Create booking</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Today's bookings</span></div>
+        <div class="booking-list" id="manage-booking-list"><div class="no-result">No bookings yet</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+const state = { members: [], bookings: [], logs: [] };
+let inside = 0, checkinCount = 0, guestCount = 0, bookingCount = 0;
+let memberSearchOpen = false;
+let ignoreSearchBlur = false;
+const avatarColors = ['av-blue', 'av-green', 'av-amber', 'av-purple'];
+
+function randomAvatarColor() {
+  return avatarColors[Math.floor(Math.random() * avatarColors.length)];
+}
+
+function setIgnoreSearchBlur(value) {
+  ignoreSearchBlur = value;
+}
+
+function openMemberSearch() {
+  memberSearchOpen = true;
+  renderSearchResults();
+}
+
+function maybeCloseMemberSearch() {
+  if (ignoreSearchBlur) {
+    ignoreSearchBlur = false;
+    return;
+  }
+  const query = document.getElementById("search-input").value.trim();
+  if (!query) {
+    memberSearchOpen = false;
+    document.getElementById("search-results").classList.add("hidden");
+  }
+}
+
+function api(path, options = {}) {
+  const opts = { ...options };
+  opts.headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  if (opts.body !== undefined && typeof opts.body !== "string") {
+    opts.body = JSON.stringify(opts.body);
+  }
+  return fetch(path, opts).then(async res => {
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new Error(data?.error || res.statusText || "Request failed");
+    }
+    return data;
+  });
+}
+
+function showTab(tab) {
+  document.getElementById("desk-panel").classList.toggle("hidden", tab !== "desk");
+  document.getElementById("manage-panel").classList.toggle("hidden", tab !== "manage");
+  document.querySelectorAll(".tab-button").forEach(btn => {
+    btn.classList.toggle("active", btn.textContent.toLowerCase().includes(tab));
+  });
+}
+
+function now() {
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true });
+}
+
+function updateClock() {
+  const d = new Date();
+  document.getElementById("clock").innerHTML =
+    d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) + "<br>" +
+    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+function updateStats() {
+  document.getElementById("s-inside").textContent = inside;
+  document.getElementById("s-checkins").textContent = checkinCount;
+  document.getElementById("s-guests").textContent = guestCount;
+  document.getElementById("s-bookings").textContent = bookingCount;
+}
+
+function renderLog() {
+  const el = document.getElementById("log-list");
+  document.getElementById("log-count").textContent = state.logs.length + " entries";
+  if (!state.logs.length) {
+    el.innerHTML = '<div class="no-result">No activity yet.</div>';
+    return;
+  }
+  el.innerHTML = state.logs.map((l, i) => `
+    <div class="log-entry ${i === 0 ? 'flash' : ''}">
+      <div class="log-dot ${l.dot}"></div>
+      <div class="log-body">
+        <div class="log-text"><span class="badge ${l.badge_class}">${l.badge}</span>${l.text}</div>
+        <div class="log-time">${l.log_time}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderSearchResults() {
+  const query = document.getElementById("search-input").value.trim().toLowerCase();
+  const el = document.getElementById("search-results");
+  if (!memberSearchOpen && !query) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  if (!query) {
+    el.innerHTML = '<div class="no-result">Click or type to search members.</div>';
+    return;
+  }
+  const results = state.members.filter(m => m.name.toLowerCase().includes(query) || m.id.toLowerCase().includes(query));
+  if (!results.length) {
+    el.innerHTML = '<div class="no-result">No members found.</div>';
+    return;
+  }
+  el.innerHTML = results.map(m => `
+    <div class="member-result">
+      <div class="avatar ${m.color_class}">${m.initials}</div>
+      <div class="member-info">
+        <div class="member-name">${m.name}</div>
+        <div class="member-meta">${m.id} &middot; ${m.type} &middot;
+          ${m.status === 'in'
+            ? '<span class="status-in">Inside now</span>'
+            : '<span class="status-out">Not checked in</span>'}
+        </div>
+      </div>
+      <div class="action-btns">
+        <button class="btn btn-green" onclick="checkinMember('${m.id}')">Check in</button>
+        <button class="btn btn-amber" onclick="checkoutMember('${m.id}')">Check out</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderManageMembers() {
+  const query = document.getElementById("manage-member-search").value.trim().toLowerCase();
+  const el = document.getElementById("manage-member-list");
+  const results = state.members.filter(m => !query || m.name.toLowerCase().includes(query) || m.id.toLowerCase().includes(query));
+  if (!results.length) {
+    el.innerHTML = '<div class="no-result">No members found.</div>';
+    return;
+  }
+  el.innerHTML = results.map(m => `
+    <div class="member-result">
+      <div class="avatar ${m.color_class}">${m.initials}</div>
+      <div class="member-info">
+        <div class="member-name">${m.name}</div>
+        <div class="member-meta">${m.id} &middot; ${m.type} &middot;
+          ${m.status === 'in'
+            ? '<span class="status-in">Inside now</span>'
+            : '<span class="status-out">Not checked in</span>'}
+        </div>
+      </div>
+      <div class="action-btns">
+        <button class="btn" onclick="editMember('${m.id}')">Edit</button>
+        <button class="btn btn-red" onclick="deleteMember('${m.id}')">Remove</button>
+        <button class="btn btn-green" onclick="checkinMember('${m.id}')">Check in</button>
+        <button class="btn btn-amber" onclick="checkoutMember('${m.id}')">Check out</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderBookingList() {
+  const el = document.getElementById("booking-list");
+  if (!state.bookings.length) {
+    el.innerHTML = '<div class="no-result">No bookings yet</div>';
+    return;
+  }
+  el.innerHTML = state.bookings.map(b => `
+    <div class="booking-item">
+      <div class="booking-facility">${b.facility}</div>
+      <div class="booking-detail">${b.member_name} &middot; ${b.time_slot}</div>
+    </div>`).join('');
+}
+
+function renderManageBookings() {
+  const el = document.getElementById("manage-booking-list");
+  if (!state.bookings.length) {
+    el.innerHTML = '<div class="no-result">No bookings yet</div>';
+    return;
+  }
+  el.innerHTML = state.bookings.map(b => `
+    <div class="booking-item">
+      <div class="booking-facility">${b.facility}</div>
+      <div class="booking-detail">${b.member_name} &middot; ${b.time_slot}</div>
+      <div class="booking-actions">
+        <button class="btn btn-amber" onclick="deleteBooking(${b.booking_id})">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+async function refreshAll() {
+  await Promise.all([loadStats(), loadMembers(), loadBookings(), loadLog()]);
+}
+
+async function loadStats() {
+  const data = await api('/api/stats');
+  inside = data.inside;
+  checkinCount = data.checkins;
+  guestCount = data.guests;
+  bookingCount = data.bookings;
+  updateStats();
+}
+
+async function loadMembers(q = '') {
+  state.members = await api('/api/members?q=' + encodeURIComponent(q));
+  renderSearchResults();
+  renderManageMembers();
+}
+
+async function loadBookings() {
+  state.bookings = await api('/api/bookings');
+  renderBookingList();
+  renderManageBookings();
+}
+
+async function loadLog() {
+  state.logs = await api('/api/log');
+  renderLog();
+}
+
+async function searchMembers() {
+  const query = document.getElementById('search-input').value.trim();
+  if (query) {
+    memberSearchOpen = true;
+  }
+  await loadMembers(query);
+}
+
+function searchManageMembers() {
+  renderManageMembers();
+}
+
+async function checkinMember(id) {
+  try {
+    await api(`/api/members/${encodeURIComponent(id)}/checkin`, { method: 'POST' });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function checkoutMember(id) {
+  try {
+    await api(`/api/members/${encodeURIComponent(id)}/checkout`, { method: 'POST' });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function addGuestPass() {
+  const name = prompt('Guest name:');
+  if (!name || !name.trim()) return;
+  try {
+    await api('/api/guests', { method: 'POST', body: { name: name.trim() } });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function quickCheckin() {
+  const query = prompt('Member name or ID:');
+  if (!query || !query.trim()) return;
+  const found = state.members.find(m => m.name.toLowerCase().includes(query.toLowerCase()) || m.id.toLowerCase() === query.toLowerCase());
+  if (found) {
+    await checkinMember(found.id);
+    return;
+  }
+  alert('Member not found. Use Manage tab to add a new member.');
+}
+
+async function addBooking(facility) {
+  const time = prompt('Time slot for ' + facility + ' (e.g. 2:00 PM – 3:00 PM):');
+  if (!time || !time.trim()) return;
+  const member_name = prompt('Member name or group:');
+  if (!member_name || !member_name.trim()) return;
+  try {
+    await api('/api/bookings', { method: 'POST', body: { facility, time_slot: time.trim(), member_name: member_name.trim() } });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function createBooking() {
+  const facility = document.getElementById('new-booking-facility').value;
+  const time_slot = document.getElementById('new-booking-time').value.trim();
+  const member_name = document.getElementById('new-booking-member').value.trim();
+  if (!facility || !time_slot || !member_name) {
+    alert('Please complete all booking fields.');
+    return;
+  }
+  try {
+    await api('/api/bookings', { method: 'POST', body: { facility, time_slot, member_name } });
+    document.getElementById('new-booking-time').value = '';
+    document.getElementById('new-booking-member').value = '';
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function createMember() {
+  const name = document.getElementById('new-member-name').value.trim();
+  const type = document.getElementById('new-member-type').value.trim();
+  const initials = document.getElementById('new-member-initials').value.trim();
+  const color_class = randomAvatarColor();
+  const status = "Not checked in";
+  if (!name || !type || !initials) {
+    alert('Please fill all member fields.');
+    return;
+  }
+  try {
+    const result = await api('/api/members', { method: 'POST', body: { name, type, initials, color_class, status } });
+    document.getElementById('new-member-name').value = '';
+    document.getElementById('new-member-type').value = '';
+    document.getElementById('new-member-initials').value = '';
+    await refreshAll();
+    alert('Member created with ID ' + result.id);
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function editMember(id) {
+  const member = state.members.find(m => m.id === id);
+  if (!member) return;
+  const name = prompt('Member name:', member.name);
+  if (name === null) return;
+  const type = prompt('Membership type:', member.type);
+  if (type === null) return;
+  const initials = prompt('Initials:', member.initials);
+  if (initials === null) return;
+  const color_class = prompt('Avatar class (av-blue, av-green, av-amber, av-purple):', member.color_class);
+  if (color_class === null) return;
+  const status = prompt('Status (in or out):', member.status);
+  if (status === null) return;
+  try {
+    await api(`/api/members/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: { name: name.trim(), type: type.trim(), initials: initials.trim(), color_class: color_class.trim(), status: status.trim() }
+    });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteMember(id) {
+  if (!confirm('Remove this member?')) return;
+  try {
+    await api(`/api/members/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function deleteBooking(id) {
+  if (!confirm('Delete this booking?')) return;
+  try {
+    await api(`/api/bookings/${id}`, { method: 'DELETE' });
+    await refreshAll();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function initApp() {
+  try {
+    await refreshAll();
+  } catch (error) {
+    console.error(error);
+    alert('Unable to load data. Make sure the backend is running and the database is configured correctly.');
+  }
+}
+
+initApp();
+setInterval(initApp, 15000);
+</script>
+</body>
+</html>
