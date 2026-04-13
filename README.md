@@ -1,5 +1,7 @@
-# Metaphorical Recreation Center — Setup
+# Metaphorical Recreation Center
+A sample application for a metaphorical recreational center. Includes passes, members, bookings
 
+# Setup
 ## Requirements
 ```
 flask
